@@ -2,7 +2,7 @@ import os
 import asyncio
 from datetime import datetime, time
 from pytz import timezone
-from hijri_converter import Gregorian
+from hijridate import Gregorian
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from groq import Groq
