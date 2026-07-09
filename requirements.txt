@@ -1,5 +1,5 @@
 python-telegram-bot[job-queue]
-hijri-converter
+hijridate==2.3.0
 pytz
 groq
 pypdf
