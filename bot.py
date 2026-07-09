@@ -201,4 +201,22 @@ def main():
     job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
     job_queue.run_daily(send_story_sabah_job, time=time(12, 0, tzinfo=LOCAL_TZ))
     job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_magazine_masa_job, time=time(21, 30, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_story_masa_job, time=time(22, 30, tzinfo=LOCAL_TZ))
+
+    # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
+
+    
+    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية)
+    job_queue.run_repeating(send_jihad_job, interval=1800, first=10)
+    
+    # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
+    job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_story_sabah_job, time=time(12, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
         
