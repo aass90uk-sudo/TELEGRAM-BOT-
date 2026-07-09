@@ -1,18 +1,19 @@
 import os
-import json
-import random
 import asyncio
 from datetime import datetime
 from pytz import timezone
 from hijri_converter import Gregorian
-from telegram import Bot
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from groq import Groq
 
-# الإعدادات
+# الإعدادات البيئية
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-LOCAL_TZ = timezone("Asia/Riyadh") # توقيت مكة المكرمة
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+LOCAL_TZ = timezone("Asia/Riyadh")
 
-bot = Bot(token=TOKEN)
+ai_client = Groq(api_key=GROQ_KEY)
 
 def get_hijri_date():
     now_local = datetime.now(LOCAL_TZ)
@@ -20,58 +21,109 @@ def get_hijri_date():
     months = ["محرم", "صفر", "ربيع الأول", "ربيع الآخر", "جمادى الأولى", "جمادى الآخرة", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة"]
     return f"📅 {hijri.day} {months[hijri.month - 1]} {hijri.year} هـ"
 
-# دالة سحب محتوى عشوائي من ملف الـ JSON
-def get_random_content(content_type):
+# دالة توليد المنشورات الدعوية والجهادية كل 30 دقيقة
+def generate_jihad_content():
+    prompt = (
+        "اكتب منشوراً إسلامياً دعوياً قصيراً ومؤثراً جداً باللغة العربية الفصحى. "
+        "يركز المنشور على مواضيع محددة تتناوب بينها: مواعظ إيمانية، أهمية الجهاد في سبيل الله وعقيدة الولاء والبراء، "
+        "مراغمة الكفار في جزيرة العرب، والدعاء الصادق والمخلص للمجاهدين وثباتهم في كل بقاع الأرض وثغور المسلمين. "
+        "اجعل الأسلوب بليغاً وحماسياً يحيي القلوب ويحفز الهمم، مع إنهاء المنشور بملخص بليغ أو دعاء."
+    )
     try:
-        with open("content.json", "r", encoding="utf-8") as file:
-            data = json.load(file)
-        return random.choice(data[content_type])
+        completion = ai_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return completion.choices.message.content
     except Exception as e:
-        print(f"خطأ في قراءة ملف JSON: {e}")
+        print(f"خطأ في توليد المحتوى الدعوي: {e}")
         return None
 
-async def send_post(content_type):
-    text = get_random_content(content_type)
-    if not text:
-        return
-    
-    full_message = f"{get_hijri_date()}\n\n{text}"
-    try:
-        await bot.send_message(chat_id=CHANNEL_ID, text=full_message, parse_mode="Markdown")
-        print(f"تم نشر {content_type} بنجاح!")
-    except Exception as e:
-        print(f"خطأ أثناء النشر: {e}")
-
-async def scheduler_loop():
-    print("البوت يعمل الآن ومستمر في مراقبة الوقت...")
-    
-    # 🚀 رسالة التجربة الفورية المدمجة جاهزة (ستنشر فوراً بالقناة للتأكد من عمل البوت)
-    try:
-        await bot.send_message(chat_id=CHANNEL_ID, text="⚡ تم تشغيل البوت بنجاح وهو متصل بالقناة الآن!")
-        print("تم إرسال رسالة التجربة بنجاح!")
-    except Exception as e:
-        print(f"خطأ في رسالة التجربة: {e}")
-
+# حلقة النشر التلقائي المكثف (كل 30 دقيقة)
+async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
+    print("بدء حلقة النشر المكثف كل 30 دقيقة...")
     while True:
-        now = datetime.now(LOCAL_TZ)
-        current_time = now.strftime("%H:%M")
+        text = generate_jihad_content()
+        if text:
+            full_message = f"{get_hijri_date()}\n\n{text}"
+            try:
+                await context.bot.send_message(chat_id=CHANNEL_ID, text=full_message, parse_mode="Markdown")
+                print("تم نشر المنشور الدوري بنجاح.")
+            except Exception as e:
+                print(f"خطأ أثناء النشر الدوري: {e}")
+        
+        # الانتظار لمدة 30 دقيقة (30 * 60 ثانية)
+        await asyncio.sleep(1800)
 
-        # مواعيد النشر اليومية بدقة
-        if current_time == "06:00":
-            await send_post("azkar_sabah")
-            await asyncio.sleep(60)
-        elif current_time == "08:00":
-            await send_post("stories_sabah")
-            await asyncio.sleep(60)
-        elif current_time == "17:00":
-            await send_post("azkar_masa")
-            await asyncio.sleep(60)
-        elif current_time == "21:30":
-            await send_post("stories_masa")
-            await asyncio.sleep(60)
+# 🏛️ دالة الرد الشرعي الفوري على تعليقات ورسائل الأعضاء
+async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text or update.message.from_user.is_bot:
+        return
 
-        await asyncio.sleep(30) # فحص الوقت كل نصف دقيقة
+    user_text = update.message.text
+    user_name = update.message.from_user.first_name
+
+    system_instruction = (
+        "أنت مساعد إسلامي فقيه، ترد على أسئلة المسلمين بأدب وفق الكتاب والسنة بفهم سلف الأمة. "
+        "يجب أن تبدأ ردك دائماً بعبارة حافلة ومخصصة بناءً على جنس السائل إن أمكن، "
+        "مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة' أو 'مرحباً بك أخي الموحد / أختي الموحدة'. "
+        "اجعل ردودك شرعية، واضحة، ومختصرة، والتزم باللغة العربية الفصحى الفخمة."
+    )
+
+    try:
+        completion = ai_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": f"السائل يدعى {user_name}، وسؤاله هو: {user_text}"}
+            ],
+            temperature=0.5
+        )
+        await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
+    except Exception as e:
+        print(f"خطأ أثناء رد الذكاء الاصطناعي: {e}")
+
+# 🤝 دالة الترحيب الجهادي الشرعي الحماسي بالعضو الجديد
+async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.new_chat_members:
+        return
+
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+        
+        prompt = (
+            f"اكتب رسالة ترحيبية إسلامية جهادية حماسية وقصيرة جداً لشخص انضم حديثاً لمجموعتنا الدعوية. "
+            f"اسمه الأول هو {member.first_name}. رحب به بعبارات قوية تحث على نصرة الدين، الثبات على الحق، "
+            f"والدعاء للمجاهدين المرابطين على الثغور في شتى بقاع الأرض، ليكون الترحيب محفزاً وموقظاً للهمم."
+        )
+        try:
+            completion = ai_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.6
+            )
+            await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
+        except Exception as e:
+            print(f"خطأ في رسالة الترحيب: {e}")
+
+def main():
+    application = Application.builder().token(TOKEN).build()
+
+    # معالج الرسائل النصية للرد الفوري
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
+    
+    # معالج رصد دخول الأعضاء الجدد للترحيب بهم
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
+
+    # تشغيل حلقة النشر التلقائي المكثف في الخلفية فور بدء البوت
+    loop = asyncio.get_event_loop()
+    loop.create_task(intensive_scheduler(application.initialize().__await__()))
+
+    print("البوت المطور يعمل الآن ويستمع ويقوم بالنشر المكثف...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(scheduler_loop())
-    
+    main()
+            
