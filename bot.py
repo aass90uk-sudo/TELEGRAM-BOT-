@@ -24,10 +24,10 @@ def get_hijri_date():
 # دالة توليد المنشورات الدعوية والجهادية كل 30 دقيقة
 def generate_jihad_content():
     prompt = (
-        "اكتب منشوراً إسلامياً دعوياً قصيراً ومؤثراً جداً باللغة العربية الفصحى. "
+        "ا... اكتب منشوراً إسلامياً دعوياً قصيراً ومؤثراً جداً باللغة العربية الفصحى. "
         "يركز المنشور على مواضيع محددة تتناوب بينها: مواعظ إيمانية، أهمية الجهاد في سبيل الله وعقيدة الولاء والبراء، "
         "مراغمة الكفار في جزيرة العرب، والدعاء الصادق والمخلص للمجاهدين وثباتهم في كل بقاع الأرض وثغور المسلمين. "
-        "اجعل الأسلوب بليغاً وحماسياً يحيي القلوب ويحفز الهمم، مع إنهاء المنشور بملخص بليغ أو دعاء."
+        "اجعل الأسلوب بليغاً وحماسياً يحيي القلوب ويحفز الهمم."
     )
     try:
         completion = ai_client.chat.completions.create(
@@ -40,9 +40,37 @@ def generate_jihad_content():
         print(f"خطأ في توليد المحتوى الدعوي: {e}")
         return None
 
+# دالة إرسال الرسالة التعريفية الفورية بجداول البوت ومحتوى القناة
+async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
+    intro_text = (
+        "📣 **مرحباً بكم في قناة رَيْحَانَةُ المَغْرِبِ الأَوْسَطِ** 📣\n\n"
+        "يسرنا أن نعلن لكم عن تفعيل **نظام الذكاء الاصطناعي الإسلامي** لإدارة ونشر محتوى القناة تلقائياً على مدار 24 ساعة بجدول منظم كالتالي:\n\n"
+        "⏰ **المحتوى اليومي الثابت:**\n"
+        "☀️ **06:00 صباحاً:** أذكار الصباح المأثورة وبث الطمأنينة.\n"
+        "📖 **08:00 صباحاً:** قصة وعبرة إسلامية مشوقة لبداية يومكم.\n"
+        "🌙 **05:00 مساءً:** أذكار المساء لحفظكم وتحصينكم.\n"
+        "🌌 **09:30 مساءً:** قصة مسائية ملهمة ورواية من عبق التراث الجزائري (الدزيري) الصالح.\n\n"
+        "⚡ **المحتوى الدوري المتجدد:**\n"
+        "🔄 **كل نصف ساعة بدون توقف:** مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، مراغمة الكفار في جزيرة العرب، ودعاء مستمر للمجاهدين الأبطال في كل بقاع الأرض وثغور المسلمين.\n\n"
+        "💬 **ميزة التفاعل الفوري:**\n"
+        "يمكنكم الآن الضغط على زر (التعليقات) أسفل أي منشور وطرح أسئلتكم الشرعية والعلمية، وسيقوم البوت بالرد الفقهي الفوري والمباشر عليكم!\n\n"
+        "نسأل الله الثبات والنصر والقبول 🤲🌱"
+    )
+    try:
+        # إرسال الرسالة وتثبيتها بالقناة لكي يراها الجميع
+        sent_message = await context.bot.send_message(chat_id=CHANNEL_ID, text=intro_text, parse_mode="Markdown")
+        await context.bot.pin_chat_message(chat_id=CHANNEL_ID, message_id=sent_message.message_id)
+        print("تم إرسال وتثبيت الرسالة التعريفية الفورية بنجاح!")
+    except Exception as e:
+        print(f"خطأ أثناء إرسال الرسالة التعريفية: {e}")
+
 # حلقة النشر التلقائي المكثف (كل 30 دقيقة)
 async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
-    print("بدء حلقة النشر المكثف كل 30 دقيقة...")
+    print("بدء حلقة النشر والجدولة اليومية...")
+    
+    # تشغيل الرسالة التعريفية فوراً لمرة واحدة عند إقلاع البوت
+    await send_welcome_intro(context)
+    
     while True:
         text = generate_jihad_content()
         if text:
@@ -53,10 +81,10 @@ async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 print(f"خطأ أثناء النشر الدوري: {e}")
         
-        # الانتظار لمدة 30 دقيقة (30 * 60 ثانية)
+        # الانتظار لمدة 30 دقيقة
         await asyncio.sleep(1800)
 
-# 🏛️ دالة الرد الشرعي الفوري على تعليقات ورسائل الأعضاء
+# دالة الرد الشرعي الفوري على التعليقات
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text or update.message.from_user.is_bot:
         return
@@ -67,7 +95,7 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     system_instruction = (
         "أنت مساعد إسلامي فقيه، ترد على أسئلة المسلمين بأدب وفق الكتاب والسنة بفهم سلف الأمة. "
         "يجب أن تبدأ ردك دائماً بعبارة حافلة ومخصصة بناءً على جنس السائل إن أمكن، "
-        "مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة' أو 'مرحباً بك أخي الموحد / أختي الموحدة'. "
+        "مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة'. "
         "اجعل ردودك شرعية، واضحة، ومختصرة، والتزم باللغة العربية الفصحى الفخمة."
     )
 
@@ -84,46 +112,19 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"خطأ أثناء رد الذكاء الاصطناعي: {e}")
 
-# 🤝 دالة الترحيب الجهادي الشرعي الحماسي بالعضو الجديد
-async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.new_chat_members:
-        return
-
-    for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-        
-        prompt = (
-            f"اكتب رسالة ترحيبية إسلامية جهادية حماسية وقصيرة جداً لشخص انضم حديثاً لمجموعتنا الدعوية. "
-            f"اسمه الأول هو {member.first_name}. رحب به بعبارات قوية تحث على نصرة الدين، الثبات على الحق، "
-            f"والدعاء للمجاهدين المرابطين على الثغور في شتى بقاع الأرض، ليكون الترحيب محفزاً وموقظاً للهمم."
-        )
-        try:
-            completion = ai_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.6
-            )
-            await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
-        except Exception as e:
-            print(f"خطأ في رسالة الترحيب: {e}")
-
 def main():
     application = Application.builder().token(TOKEN).build()
 
-    # معالج الرسائل النصية للرد الفوري
+    # معالج الرسائل النصية للرد في التعليقات
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
-    
-    # معالج رصد دخول الأعضاء الجدد للترحيب بهم
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
 
-    # تشغيل حلقة النشر التلقائي المكثف في الخلفية فور بدء البوت
+    # تشغيل حلقة الجدولة والنشر الفوري في الخلفية
     loop = asyncio.get_event_loop()
     loop.create_task(intensive_scheduler(application.initialize().__await__()))
 
-    print("البوت المطور يعمل الآن ويستمع ويقوم بالنشر المكثف...")
+    print("البوت يعمل الآن ويستعد لنشر الرسالة التعريفية والجدولة...")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
-            
+    
