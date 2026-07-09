@@ -10,7 +10,7 @@ from telegram import Bot
 # الإعدادات
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-LOCAL_TZ = timezone("Asia/Riyadh") # غيرها لتوقيت بلدك إذا أردت
+LOCAL_TZ = timezone("Asia/Riyadh") # توقيت مكة المكرمة
 
 bot = Bot(token=TOKEN)
 
@@ -44,6 +44,14 @@ async def send_post(content_type):
 
 async def scheduler_loop():
     print("البوت يعمل الآن ومستمر في مراقبة الوقت...")
+    
+    # 🚀 رسالة التجربة الفورية المدمجة جاهزة (ستنشر فوراً بالقناة للتأكد من عمل البوت)
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text="⚡ تم تشغيل البوت بنجاح وهو متصل بالقناة الآن!")
+        print("تم إرسال رسالة التجربة بنجاح!")
+    except Exception as e:
+        print(f"خطأ في رسالة التجربة: {e}")
+
     while True:
         now = datetime.now(LOCAL_TZ)
         current_time = now.strftime("%H:%M")
@@ -66,3 +74,4 @@ async def scheduler_loop():
 
 if __name__ == "__main__":
     asyncio.run(scheduler_loop())
+    
