@@ -164,9 +164,14 @@ async def on_startup(application: Application):
         print(f"خطأ في الرسالة التعريفية: {e}")
 
 # دالة الرد الفقهي في التعليقات
+# دالة الرد الفقهي المحدثة للمجموعات والتعليقات
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text or update.message.from_user.is_bot: return
-    user_text, user_name = update.message.text, update.message.from_user.first_name
+    if not update.effective_message or not update.effective_message.text or (update.effective_user and update.effective_user.is_bot): 
+        return
+        
+    user_text = update.effective_message.text
+    user_name = update.effective_user.first_name if update.effective_user else "أخي في الله"
+    
     system_instruction = (
         "أنت مساعد إسلامي فقيه، ترد على أسئلة المسلمين بأدب وفق الكتاب والسنة بفهم سلف الأمة. "
         "يجب أن تبدأ ردك دائماً بعبارة حافلة مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة'."
@@ -177,8 +182,10 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": f"السائل: {user_name}، السؤال: {user_text}"}],
             temperature=0.5
         )
-        await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
-    except Exception as e: print(f"خطأ في الرد: {e}")
+        await update.effective_message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
+    except Exception as e: 
+        print(f"خطأ في الرد: {e}")
+
 # دالة الترحيب التلقائي بالأعضاء الجدد في المجموعة
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
