@@ -67,7 +67,7 @@ def extract_and_fix_pdf_text(page_num):
 # توليد المحتوى عبر الذكاء الاصطناعي
 def generate_ai_content(prompt_type):
     prompts = {
-        "azkar_sabah": "اكتب منشوراً صباحياً قصيراً يحتوي على أحد أذكار الصباح وفضلها بنبرة إيمانية دافئة.",
+        "azkar_sabah": "اتب منشوراً صباحياً قصيراً يحتوي على أحد أذكار الصباح وفضلها بنبرة إيمانية دافئة.",
         "stories_sabah": "اكتب قصة إسلامية وعبرة مأثورة ملهمة وقصيرة جداً، واختمها بـ (العبرة من القصة:).",
         "azkar_masa": "اكتب منشوراً مسائياً قصيراً ومؤثراً يحتوي على أحد أذكار المساء المأثورة وفضلها.",
         "stories_masa": "اكتب قصة ملهمة قصيرة جداً من التراث الجزائري القديم والصالحين في المغرب الأوسط والأندلس مليئة بالعبر والمواعظ."
@@ -138,7 +138,7 @@ async def send_magazine_masa_job(context: ContextTypes.DEFAULT_TYPE):
         caption_message = f"{get_hijri_date()}\n\n📖 **من صفحات مجلتكم (المسائية من الـ PDF)**\n📄 **الصفحة: {page_num + 1}**\n\n{fixed_text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
         await context.bot.send_message(chat_id=CHANNEL_ID, text=caption_message, parse_mode="Markdown")
 
-# 📣 الرسالة التعريفية الفورية عند التشغيل
+# الرسالة التعريفية الفورية عند التشغيل
 async def on_startup(application: Application):
     intro_text = (
         "📣 **مرحباً بكم في قناة رَيْحَانَةُ المَغْرِبِ الأَوْسَطِ الأَنْدَلُسِيَّة** 📣\n\n"
@@ -163,7 +163,6 @@ async def on_startup(application: Application):
     except Exception as e:
         print(f"خطأ في الرسالة التعريفية: {e}")
 
-# دالة الرد الفقهي في التعليقات
 # دالة الرد الفقهي المحدثة للمجموعات والتعليقات
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_message or not update.effective_message.text or (update.effective_user and update.effective_user.is_bot): 
@@ -189,7 +188,6 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # دالة الترحيب التلقائي بالأعضاء الجدد في المجموعة
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
-        # التأكد من أن العضو المنضم ليس البوت نفسه
         if not member.is_bot:
             welcome_text = (
                 f"🌱 **مرحباً بك أخي الموحد البطل {member.first_name} في مجموعة النقاشات** 🌱\n\n"
@@ -198,47 +196,9 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
             )
             await update.message.reply_text(text=welcome_text, parse_mode="Markdown")
-            
+
 def main():
-    # بناء التطبيق مع تفعيل الجدولة الرسمية المستقرة
-    application = Application.builder().token(TOKEN).build()    
-    # ربط دالة الإقلاع الفوري للرسالة المثبتة
-    application.post_init = on_startup   
-    # معالج تعليقات الأعضاء والرد الفقهي الآلي
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))    
-    # معالج انضمام الأعضاء الجدد للمجموعة
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
-    # 📅 جدولة المهام الرسمية بدون أي تعارض برمي
-    job_queue = application.job_queue
-    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية) يتم بعد ثانية واحدة من التشغيل للتجربة
-    job_queue.run_repeating(send_jihad_job, interval=1800, first=1)
-    # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
-    job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_story_sabah_job, time=time(12, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_magazine_masa_job, time=time(21, 30, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_story_masa_job, time=time(22, 30, tzinfo=LOCAL_TZ))
-
-    # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
-
-    # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+    application = Application.builder().token(TOKEN).build()
+    application.post_init = on_startup
 
     
-    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية)
-    job_queue.run_repeating(send_jihad_job, interval=1800, first=10)
-    
-    # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
-    job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_story_sabah_job, time=time(12, 0, tzinfo=LOCAL_TZ))
-    job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
-        
