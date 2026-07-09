@@ -194,23 +194,17 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
 def main():
     # بناء التطبيق مع تفعيل الجدولة الرسمية المستقرة
-    application = Application.builder().token(TOKEN).build()
-    
+    application = Application.builder().token(TOKEN).build()    
     # ربط دالة الإقلاع الفوري للرسالة المثبتة
-    application.post_init = on_startup
-    
+    application.post_init = on_startup   
     # معالج تعليقات الأعضاء والرد الفقهي الآلي
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
-    
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))    
     # معالج انضمام الأعضاء الجدد للمجموعة
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
-
     # 📅 جدولة المهام الرسمية بدون أي تعارض برمي
     job_queue = application.job_queue
-    
     # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية) يتم بعد ثانية واحدة من التشغيل للتجربة
     job_queue.run_repeating(send_jihad_job, interval=1800, first=1)
-    
     # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
     job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
     job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
