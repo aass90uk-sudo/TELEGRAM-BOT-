@@ -179,7 +179,19 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
     except Exception as e: print(f"خطأ في الرد: {e}")
-
+# دالة الترحيب التلقائي بالأعضاء الجدد في المجموعة
+async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        # التأكد من أن العضو المنضم ليس البوت نفسه
+        if not member.is_bot:
+            welcome_text = (
+                f"🌱 **مرحباً بك أخي الموحد البطل {member.first_name} في مجموعة النقاشات** 🌱\n\n"
+                "سعدنا بانضمامك إلينا. يمكنك طرح أسئلتك واستفساراتك الشرعية هنا، "
+                "وسيجيبك نظام الذكاء الاصطناعي الفقهي فوراً إن شاء الله.\n\n"
+                "🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
+            )
+            await update.message.reply_text(text=welcome_text, parse_mode="Markdown")
+            
 def main():
     # بناء التطبيق مع تفعيل الجدولة الرسمية المستقرة
     application = Application.builder().token(TOKEN).build()
@@ -187,14 +199,17 @@ def main():
     # ربط دالة الإقلاع الفوري للرسالة المثبتة
     application.post_init = on_startup
     
-    # معالج تعليقات الأعضاء
+    # معالج تعليقات الأعضاء والرد الفقهي الآلي
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
+    
+    # معالج انضمام الأعضاء الجدد للمجموعة
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
 
     # 📅 جدولة المهام الرسمية بدون أي تعارض برمي
     job_queue = application.job_queue
     
-    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية)
-    job_queue.run_repeating(send_jihad_job, interval=1800, first=10)
+    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية) يتم بعد ثانية واحدة من التشغيل للتجربة
+    job_queue.run_repeating(send_jihad_job, interval=1800, first=1)
     
     # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
     job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
@@ -203,6 +218,12 @@ def main():
     job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
     job_queue.run_daily(send_magazine_masa_job, time=time(21, 30, tzinfo=LOCAL_TZ))
     job_queue.run_daily(send_story_masa_job, time=time(22, 30, tzinfo=LOCAL_TZ))
+
+    # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
 
     # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
     application.run_polling()
