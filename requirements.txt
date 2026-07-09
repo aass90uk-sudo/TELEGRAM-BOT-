@@ -2,3 +2,4 @@ python-telegram-bot
 hijri-converter
 pytz
 groq
+pypdf
