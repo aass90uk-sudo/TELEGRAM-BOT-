@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, time
 from pytz import timezone
 from hijri_converter import Gregorian
 from telegram import Update
@@ -79,7 +79,7 @@ def generate_ai_content(prompt_type):
             temperature=0.7
         )
         return completion.choices.message.content
-    except Exception as e:
+    except:
         return None
 
 def generate_jihad_content():
@@ -94,24 +94,52 @@ def generate_jihad_content():
             temperature=0.7
         )
         return completion.choices.message.content
-    except Exception as e:
+    except:
         return None
 
-async def send_daily_post(context: ContextTypes.DEFAULT_TYPE, prompt_type: str):
-    text = generate_ai_content(prompt_type)
+# دالات النشر التي تستدعيها الجدولة الرسمية
+async def send_jihad_job(context: ContextTypes.DEFAULT_TYPE):
+    text = generate_jihad_content()
     if text:
         full_message = f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
         await context.bot.send_message(chat_id=CHANNEL_ID, text=full_message, parse_mode="Markdown")
 
-async def send_magazine_page(context: ContextTypes.DEFAULT_TYPE, period_name: str):
+async def send_azkar_sabah_job(context: ContextTypes.DEFAULT_TYPE):
+    text = generate_ai_content("azkar_sabah")
+    if text:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها.", parse_mode="Markdown")
+
+async def send_azkar_masa_job(context: ContextTypes.DEFAULT_TYPE):
+    text = generate_ai_content("azkar_masa")
+    if text:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها.", parse_mode="Markdown")
+
+async def send_story_sabah_job(context: ContextTypes.DEFAULT_TYPE):
+    text = generate_ai_content("stories_sabah")
+    if text:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها.", parse_mode="Markdown")
+
+async def send_story_masa_job(context: ContextTypes.DEFAULT_TYPE):
+    text = generate_ai_content("stories_masa")
+    if text:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها.", parse_mode="Markdown")
+
+async def send_magazine_sabah_job(context: ContextTypes.DEFAULT_TYPE):
     page_num = get_and_update_next_page()
     fixed_text = extract_and_fix_pdf_text(page_num)
     if fixed_text:
-        caption_message = f"{get_hijri_date()}\n\n📖 **من صفحات مجلتكم ({period_name})**\n📄 **الصفحة: {page_num + 1}**\n\n{fixed_text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
+        caption_message = f"{get_hijri_date()}\n\n📖 **من صفحات مجلتكم (الصباحية من الـ PDF)**\n📄 **الصفحة: {page_num + 1}**\n\n{fixed_text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
         await context.bot.send_message(chat_id=CHANNEL_ID, text=caption_message, parse_mode="Markdown")
 
-# 📣 دالة إرسال وتثبيت الرسالة التعريفية فوراً عند التشغيل
-async def send_welcome_intro(application):
+async def send_magazine_masa_job(context: ContextTypes.DEFAULT_TYPE):
+    page_num = get_and_update_next_page()
+    fixed_text = extract_and_fix_pdf_text(page_num)
+    if fixed_text:
+        caption_message = f"{get_hijri_date()}\n\n📖 **من صفحات مجلتكم (المسائية من الـ PDF)**\n📄 **الصفحة: {page_num + 1}**\n\n{fixed_text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption_message, parse_mode="Markdown")
+
+# 📣 الرسالة التعريفية الفورية عند التشغيل
+async def on_startup(application: Application):
     intro_text = (
         "📣 **مرحباً بكم في قناة رَيْحَانَةُ المَغْرِبِ الأَوْسَطِ الأَنْدَلُسِيَّة** 📣\n\n"
         "يسرنا أن نعلن لكم عن تفعيل **نظام الذكاء الاصطناعي الإسلامي** لإدارة ونشر محتوى القناة تلقائياً على مدار 24 ساعة بجدول منظم كالتالي:\n\n"
@@ -132,49 +160,10 @@ async def send_welcome_intro(application):
     try:
         sent_message = await application.bot.send_message(chat_id=CHANNEL_ID, text=intro_text, parse_mode="Markdown")
         await application.bot.pin_chat_message(chat_id=CHANNEL_ID, message_id=sent_message.message_id)
-        print("تم إرسال وتثبيت الرسالة التعريفية فوراً عند الإقلاع!")
     except Exception as e:
-        print(f"خطأ أثناء إرسال الرسالة التعريفية: {e}")
+        print(f"خطأ في الرسالة التعريفية: {e}")
 
-# حلقة الجدولة الكلية
-async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
-    print("بدء حلقة الجدولة والمراقبة الزمنية...")
-    half_hour_counter = 0
-    while True:
-        now = datetime.now(LOCAL_TZ)
-        current_time = now.strftime("%H:%M")
-
-        if current_time == "06:00":
-            await send_daily_post(context, "azkar_sabah")
-            await asyncio.sleep(60)
-        elif current_time == "08:00":
-            await send_magazine_page(context, "الصباحية من الـ PDF")
-            await asyncio.sleep(60)
-        elif current_time == "12:00":
-            await send_daily_post(context, "stories_sabah")
-            await asyncio.sleep(60)
-        elif current_time == "17:00":
-            await send_daily_post(context, "azkar_masa")
-            await asyncio.sleep(60)
-        elif current_time == "21:30":
-            await send_magazine_page(context, "المسائية من الـ PDF")
-            await asyncio.sleep(60)
-        elif current_time == "22:30":
-            await send_daily_post(context, "stories_masa")
-            await asyncio.sleep(60)
-
-        if half_hour_counter >= 1800:
-            text = generate_jihad_content()
-            if text:
-                full_message = f"{get_hijri_date()}\n\n{text}\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
-                try: await context.bot.send_message(chat_id=CHANNEL_ID, text=full_message, parse_mode="Markdown")
-                except Exception as e: print(f"خطأ في النشر الدوري: {e}")
-            half_hour_counter = 0
-
-        await asyncio.sleep(10)
-        half_hour_counter += 10
-
-# دالة الرد الفقهي
+# دالة الرد الفقهي في التعليقات
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text or update.message.from_user.is_bot: return
     user_text, user_name = update.message.text, update.message.from_user.first_name
@@ -191,22 +180,25 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=completion.choices.message.content, parse_mode="Markdown")
     except Exception as e: print(f"خطأ في الرد: {e}")
 
-async def on_startup(application: Application):
-    # إرسال الرسالة فور تشغيل البوت ودون انتظار أي حلقة
-    await send_welcome_intro(application)
-
 def main():
+    # بناء التطبيق مع تفعيل الجدولة الرسمية المستقرة
     application = Application.builder().token(TOKEN).build()
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
     
-    # ربط دالة الإقلاع الفوري بالتطبيق
-    loop = asyncio.get_event_loop()
+    # ربط دالة الإقلاع الفوري للرسالة المثبتة
     application.post_init = on_startup
     
-    loop.create_task(intensive_scheduler(application.initialize().__await__()))
-    print("البوت الشامل يعمل وينشر الرسالة التعريفية فوراً...")
-    application.run_polling()
+    # معالج تعليقات الأعضاء
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
 
-if __name__ == "__main__":
-    main()
+    # 📅 جدولة المهام الرسمية بدون أي تعارض برمي
+    job_queue = application.job_queue
     
+    # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية)
+    job_queue.run_repeating(send_jihad_job, interval=1800, first=10)
+    
+    # 2. المواعيد اليومية الثابتة والمضبوطة حسب توقيت المنطقة الزمنية المحلية
+    job_queue.run_daily(send_azkar_sabah_job, time=time(6, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_magazine_sabah_job, time=time(8, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_story_sabah_job, time=time(12, 0, tzinfo=LOCAL_TZ))
+    job_queue.run_daily(send_azkar_masa_job, time=time(17, 0, tzinfo=LOCAL_TZ))
+        
