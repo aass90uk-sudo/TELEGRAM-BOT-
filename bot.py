@@ -225,6 +225,13 @@ def main():
 if __name__ == "__main__":
     main()
 
+    # ⚡ تشغيل البوت بشكل مستمر ودائم دون توقف
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
+
+    
     # 1. المنشور الدوري (كل 30 دقيقة = 1800 ثانية)
     job_queue.run_repeating(send_jihad_job, interval=1800, first=10)
     
