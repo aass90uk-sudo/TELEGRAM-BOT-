@@ -126,7 +126,7 @@ async def send_magazine_page(context: ContextTypes.DEFAULT_TYPE, period_name: st
         caption_message = f"📖 **من صفحات مجلتكم الموقرة ({period_name})** 📖\nالمنشور رقم: {page_num + 1}\n\n{fixed_text}\n\n*صدقة جارية للأخت الأندلسية غفر الله لها*"
         await send_to_channel(context, caption_message)
 
-# --- دالة الترحيب والتثبيت المتوافقة مع منطقك ---
+# --- دالة الترحيب والتثبيت كما هي في صورك تماماً ---
 async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
     intro_text = (
         "✨ **مرحباً بكم في قناة ريحانة المغرب الأوسط الأندلسية** ✨\n\n"
@@ -151,49 +151,54 @@ async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"(e) خطأ أثناء إرسال الرسالة التعريفية: {e}")
 
-# --- حلقة الجدولة الزمنية بعد تصحيح تخطي الدقائق والتكرار ---
+# --- إصلاح حلقة الجدولة المدمجة الخاصة بك لتنشر بدقة وثبات ---
 async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
     print("(... بدء حلقة الجدولة المدمجة الكبرى ...)")
     print("(... بدء حلقة الجدولة والمراقبة الزمنية ...)")
     
     half_hour_counter = 0
-    last_checked_minute = "" # متغير ذكي لمنع تكرار النشر في نفس الدقيقة
     
     while True:
         try:
             now = datetime.datetime.now(LOCAL_TZ)
             current_time = now.strftime("%H:%M")
             
-            # فحص الأوقات اليومية الثابتة بشرط عدم تكرار الدقيقة المفتوحة
-            if current_time != last_checked_minute:
-                if current_time == "06:00":
-                    asyncio.create_task(send_daily_post(context, "azkar_sabah"))
-                    last_checked_minute = current_time
-                elif current_time == "08:00":
-                    asyncio.create_task(send_magazine_page(context, "النسخة الصباحية"))
-                    last_checked_minute = current_time
-                elif current_time == "12:00":
-                    asyncio.create_task(send_daily_post(context, "stories_sabah"))
-                    last_checked_minute = current_time
-                elif current_time == "17:00":
-                    asyncio.create_task(send_daily_post(context, "azkar_masa"))
-                    last_checked_minute = current_time
-                elif current_time == "21:30":
-                    asyncio.create_task(send_magazine_page(context, "النسخة المسائية"))
-                    last_checked_minute = current_time
-                elif current_time == "22:30":
-                    asyncio.create_task(send_daily_post(context, "stories_masa"))
-                    last_checked_minute = current_time
+            # المنشورات اليومية المجدولة المذكورة في صورك
+            if current_time == "06:00":
+                await send_daily_post(context, "azkar_sabah")
+                await asyncio.sleep(60) # تجميد ثوانٍ لمنع تكرار الإرسال في نفس الدقيقة
+                
+            elif current_time == "08:00":
+                await send_magazine_page(context, "النسخة الصباحية")
+                await asyncio.sleep(60)
+                
+            elif current_time == "12:00":
+                await send_daily_post(context, "stories_sabah")
+                await asyncio.sleep(60)
+                
+            elif current_time == "17:00":
+                await send_daily_post(context, "azkar_masa")
+                await asyncio.sleep(60)
+                
+            elif current_time == "21:30":
+                await send_magazine_page(context, "النسخة المسائية")
+                await asyncio.sleep(60)
+                
+            elif current_time == "22:30":
+                await send_daily_post(context, "stories_masa")
+                await asyncio.sleep(60)
 
-            # فحص النشر الدوري المستقل كل 30 دقيقة (1800 ثانية)
+            # المنشور الحماسي الدوري المتكرر كل 30 دقيقة (1800 ثانية)
             if half_hour_counter >= 1800:
-                asyncio.create_task(send_to_channel(context, generate_jihad_content()))
-                half_hour_counter = 0
+                text = generate_jihad_content()
+                if text:
+                    await send_to_channel(context, text)
+                half_hour_counter = 0 # تصفير العداد ليعمل النصف ساعة القادمة
                 
         except Exception as e:
             print(f"(e) خطأ في حلقة الجدولة: {e}")
             
-        await asyncio.sleep(10) # فحص مستقر وآمن كل 10 ثوانٍ
+        await asyncio.sleep(10) # فحص الوقت كل 10 ثوانٍ لضمان الدقة العالية والاستقرار
         half_hour_counter += 10
 
 # --- دالة الرد الفقهي الإسلامي في التعليقات ---
@@ -218,3 +223,5 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"(e) خطأ في الرد: {e}")
 
+async def on_startup(app: Application):
+    """إرسال الرسالة الترحيبية وتثبيتها وتشغيل الجدولة تلقائياً فور إقلاع البوت"""
