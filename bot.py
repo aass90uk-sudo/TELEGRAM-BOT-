@@ -6,9 +6,9 @@ import pytz
 from pypdf import PdfReader
 from groq import Groq
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-# إعدادات التسجيل ومراقبة الأخطاء
+# إعدادات مراقبة السيرفر
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -17,214 +17,204 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
 
-# التحقق من وجود المتغيرات الأساسية
-if not all([TOKEN, CHANNEL_ID, GROQ_KEY]):
-    logger.error("خطأ: يرجى التأكد من ضبط جميع المتغيرات البيئية في Railway!")
-    exit(1)
+# تهيئة عميل Groq والتوقيت كما هو في صورك
+ai_client = Groq(api_key=GROQ_KEY)
+LOCAL_TZ = pytz.timezone('Asia/Riyadh')
 
-# تهيئة عميل Groq
-groq_client = Groq(api_key=GROQ_KEY)
-TIMEZONE = pytz.timezone('Asia/Riyadh') # توقيت مكة المكرمة
-
-# ملف حفظ الصفحة الحالية للمجلة
 PAGE_TRACKER_FILE = "current_page.txt"
 
-def get_next_page_index():
-    """قراءة رقم الصفحة التالية المراد نشرها"""
+def get_and_update_next_page():
+    current_page = 0
     if os.path.exists(PAGE_TRACKER_FILE):
         try:
             with open(PAGE_TRACKER_FILE, "r") as f:
-                return int(f.read().strip())
+                current_page = int(f.read().strip())
         except ValueError:
-            return 0
-    return 0
-
-def save_next_page_index(page_index):
-    """حفظ رقم الصفحة التالية"""
+            current_page = 0
+            
     with open(PAGE_TRACKER_FILE, "w") as f:
-        f.write(str(page_index))
+        f.write(str(current_page + 1))
+    return current_page
 
-def generate_ai_content(prompt: str) -> str:
-    """توليد النصوص والردود باستخدام نموذج لاما عبر Groq"""
+def generate_ai_content(prompt_type: str) -> str:
+    prompts = {
+        "azkar_sabah": "اكتب منشوراً صباحياً فصيحاً ومؤثراً يحتوي على أحد أذكار الصباح، وفضلها بنبرة إيمانية دافئة.",
+        "stories_sabah": "اكتب قصة إسلامية وعبرة مأثورة ملهمة ومختصرة جداً، واختمها بـ (العبرة من القصة: ).",
+        "azkar_masa": "اكتب منشوراً مسائياً فصيحاً ومؤثراً يحتوي على أحد أذكار المساء، المأثورة وفضلها.",
+        "stories_masa": "اكتب قصة ملهمة قصيرة جداً من التراث الجزائري (الديزي) القديم، والصالحين في المغرب الأوسط والأندلس مليئة بالعبر والمواعظ."
+    }
+    prompt = prompts.get(prompt_type, "اكتب مواعظ وتوجيهات إيمانية بليغة.")
     try:
-        completion = groq_client.chat.completions.create(
+        completion = ai_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "أنت مساعد ذكي مخصص لبوت دعوي إيماني حماسي فصيح وبليغ جداً. تلتزم باللغة العربية الفصحى القوية وبثبات الأمة والدعاء للمجاهدين وثغور المسلمين وعقيدة الولاء والبراء."},
+                {"role": "system", "content": "أنت خبير دعوي وتربوي إسلامي، لغتك فصيحة وبليغة جداً وتلتزم باللغة العربية الفصحى القوية."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=1500
+            max_tokens=1000
         )
-        return completion.choices[0].message.content.strip()
+        return completion.choices.message.content.strip()
     except Exception as e:
-        logger.error(f"خطأ أثناء الاتصال بـ Groq API: {e}")
+        logger.error(f"خطأ في توليد المحتوى الذكي: {e}")
         return ""
 
-def extract_and_fix_pdf_page() -> str:
-    """استخراج نص الصفحة من المجلة وإصلاحها عبر الذكاء الاصطناعي"""
+def generate_jihad_content() -> str:
+    try:
+        completion = ai_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "أنت خبير دعوي وتربوي إسلامي بليغ جداً وفصيح."},
+                {"role": "user", "content": "اكتب منشوراً إسلامياً دعوياً حماسياً يركز على عقيدة الولاء والبراء، أهمية الجهاد وثبات الأمة، ومراغمة الكفار في جزيرة العرب، مع الدعاء لأبطال وثغور المجاهدين."}
+            ],
+            temperature=0.7,
+            max_tokens=800
+        )
+        return completion.choices.message.content.strip()
+    except Exception as e:
+        logger.error(f"خطأ في توليد المحتوى الدوري: {e}")
+        return ""
+
+def extract_and_fix_pdf_text(page_num: int) -> str:
     pdf_path = "magazine.pdf"
     if not os.path.exists(pdf_path):
-        logger.warning("ملف magazine.pdf غير موجود في المستودع.")
         return ""
-    
     try:
         reader = PdfReader(pdf_path)
-        total_pages = len(reader.pages)
-        current_page = get_next_page_index()
-        
-        if current_page >= total_pages:
-            current_page = 0 # العودة للبداية إذا انتهت المجلة
-            
-        page = reader.pages[current_page]
+        if page_num >= len(reader.pages):
+            page_num = 0
+            with open(PAGE_TRACKER_FILE, "w") as f:
+                f.write("1")
+        page = reader.pages[page_num]
         raw_text = page.extract_text()
-        
         if not raw_text or len(raw_text.strip()) < 10:
-            save_next_page_index(current_page + 1)
-            return "نسخة دورية من المجلة (تعذر استخراج النص البرمجي من هذه الصفحة آلياً)."
-
-        # إرسال النص المكسور لـ Groq لإصلاحه وتنسيقه
-        prompt = f"قم بإعادة تجميع الكلمات المكسورة والتصحيح اللغوي والنحوي للنص التالي المستخرج من مجلة برمجية دعوية ليصبح منسقاً، بليغاً جداً، وفصيحاً. لا تقم بتلخيصه بل أعد صياغته بشكل صحيح وسليم:\n\n{raw_text}"
-        fixed_text = generate_ai_content(prompt)
-        
-        # حفظ الصفحة التالية للمرة القادمة
-        save_next_page_index(current_page + 1)
-        return fixed_text
+            return ""
+        completion = ai_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "أنت خبير لغوي متمكن، مهمتك إصلاح النصوص العربية المكسورة الناتجة عن استخراج النصوص من ملفات PDF الممسوحة ضوئياً، أعد صياغتها لتكون فصيحة ومترابطة دون تغيير المعنى الأصل وبدون تلخيص."},
+                {"role": "user", "content": raw_text}
+            ],
+            temperature=0.5,
+            max_tokens=1500
+        )
+        return completion.choices.message.content.strip()
     except Exception as e:
-        logger.error(f"خطأ أثناء معالجة الـ PDF: {e}")
+        logger.error(f"خطأ في معالجة الـ PDF: {e}")
         return ""
 
 async def send_to_channel(context: ContextTypes.DEFAULT_TYPE, text: str):
-    """إرسال المنشور إلى القناة المحددة"""
-    if text:
-        try:
-            await context.bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="Markdown")
-        except Exception as e:
-            # محاولة الإرسال كنص عادي إذا فشل تنسيق الماركداون بسبب الرموز
-            try:
-                await context.bot.send_message(chat_id=CHANNEL_ID, text=text)
-            except Exception as ex:
-                logger.error(f"فشل إرسال الرسالة للقناة: {ex}")
-
-# --- مهام الجدولة الزمنية ---
-
-async def handle_fixed_schedules(context: ContextTypes.DEFAULT_TYPE):
-    """فحص التوقيت الحالي لتوكل مكة المكرمة ونشر المهام اليومية المحددة"""
-    while True:
-        now = datetime.datetime.now(TIMEZONE)
-        current_time_str = now.strftime("%H:%M")
-        
-        # 06:00 صباحاً - أذكار الصباح
-        if current_time_str == "06:00":
-            content = generate_ai_content("اكتب منشوراً بليغاً ومؤثراً يحتوي على أذكار الصباح مع توجيه إيماني حماسي يحث على الثبات ونصرة الدين.")
-            await send_to_channel(context, content)
-            await asyncio.sleep(61)
-            
-        # 08:00 صباحاً - مجلة النسخة الصباحية
-        elif current_time_str == "08:00":
-            content = extract_and_fix_pdf_page()
-            if content:
-                await send_to_channel(context, f"📖 **مجلة القناة (النسخة الصباحية)** 📖\n\n{content}")
-            await asyncio.sleep(61)
-            
-        # 12:00 ظهراً - قصة وعبرة ملهمة
-        elif current_time_str == "12:00":
-            content = generate_ai_content("ألّف قصة تاريخية أو تراثية قصيرة من حكايات الصالحين أو السلف تحمل عبرة ملهمة ومؤثرة للأمة اليوم.")
-            await send_to_channel(context, content)
-            await asyncio.sleep(61)
-            
-        # 05:00 مساءً - أذكار المساء
-        elif current_time_str == "17:00":
-            content = generate_ai_content("اكتب منشوراً بليغاً يحتوي على أذكار المساء مع دعاء وتوجيه إيماني حماسي للأمة والمجاهدين.")
-            await send_to_channel(context, content)
-            await asyncio.sleep(61)
-            
-        # 09:30 مساءً - مجلة النسخة المسائية
-        elif current_time_str == "21:30":
-            content = extract_and_fix_pdf_page()
-            if content:
-                await send_to_channel(context, f"📄 **مجلة القناة (النسخة المسائية)** 📄\n\n{content}")
-            await asyncio.sleep(61)
-            
-        # 10:30 مساءً - تراث دزيري أندلسي
-        elif current_time_str == "22:30":
-            content = generate_ai_content("اكتب حكاية أو خاطرة تراثية من عبق المغرب الأوسط والأندلس وعن بطولات الصالحين هناك بأسلوب أدبي بليغ.")
-            await send_to_channel(context, content)
-            await asyncio.sleep(61)
-            
-        await asyncio.sleep(30) # الفحص كل 30 ثانية لدقة التوقيت
-
-async def handle_recurring_posts(context: ContextTypes.DEFAULT_TYPE):
-    """مهمة النشر الدوري التلقائي الحماسي كل 30 دقيقة"""
-    # الانتظار قليلاً عند بداية إقلاع البوت منعاً للاصطدام بالرسائل الأخرى
-    await asyncio.sleep(10)
-    while True:
-        content = generate_ai_content("اكتب منشوراً دعوياً جهادياً حماسياً يركز على عقيدة الولاء والبراء، أهمية الجهاد وثبات الأمة، ومراغمة الكفار في جزيرة العرب، مع الدعاء لأبطال وثغور المجاهدين.")
-        if content:
-            await send_to_channel(context, content)
-        await asyncio.sleep(1800) # 1800 ثانية = 30 دقيقة
-
-# --- الرد التفاعلي في المجموعات ---
-
-async def handle_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الرد الفقهي التفاعلي في المجموعات والتعليقات"""
-    # التأكد من أن الرسالة نصية وليست من القناة نفسها
-    if not update.message or not update.message.text:
+    if not text:
         return
-        
+    try:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="Markdown")
+    except Exception:
+        try:
+            await context.bot.send_message(chat_id=CHANNEL_ID, text=text)
+        except Exception as e:
+            logger.error(f"فشل الإرسال نهائياً للقناة: {e}")
+
+async def send_daily_post(context: ContextTypes.DEFAULT_TYPE, prompt_type: str):
+    text = generate_ai_content(prompt_type)
+    if text:
+        await send_to_channel(context, text)
+
+async def send_magazine_page(context: ContextTypes.DEFAULT_TYPE, period_name: str):
+    page_num = get_and_update_next_page()
+    fixed_text = extract_and_fix_pdf_text(page_num)
+    if fixed_text:
+        caption_message = f"📖 **من صفحات مجلتكم الموقرة ({period_name})** 📖\nالمنشور رقم: {page_num + 1}\n\n{fixed_text}\n\n*صدقة جارية للأخت الأندلسية غفر الله لها*"
+        await send_to_channel(context, caption_message)
+
+# --- دالة الترحيب والتثبيت المتوافقة مع منطقك ---
+async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
+    intro_text = (
+        "✨ **مرحباً بكم في قناة ريحانة المغرب الأوسط الأندلسية** ✨\n\n"
+        "يسرنا أن نعلن لكم عن تفعيل نظام الذكاء الاصطناعي الإسلامي لإدارة ونشر محتوى القناة تلقائياً على مدار 24 ساعة بجدول منظم كالآتي:\n\n"
+        "📊 **المحتوى اليومي الثابت:**\n"
+        "🌅 06:00 صباحاً: أذكار الصباح وبث الطمأنينة.\n"
+        "📖 08:00 صباحاً: مجلة القناة (النسخة الصباحية) المستخرجة آلياً من الـ PDF.\n"
+        "📜 12:00 ظهراً: قصة صباحية وعبرة بليغة.\n"
+        "🌆 05:00 مساءً: أذكار المساء وتحصين المسلم.\n"
+        "📄 21:30 مساءً: مجلة القناة (النسخة المسائية) ومتابعة المقالات.\n"
+        "🌌 22:30 مساءً: قصة مسائية وتراث دزيري أندلسي من سير الصالحين.\n\n"
+        "⚔️ **المحتوى الدوري المتجدد:**\n"
+        "كل نصف ساعة بدون توقف: مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، ومراغمة الكفار، والدعاء المستمر للمجاهدين في الثغور.\n\n"
+        "💬 **ميزة التفاعل الفوري:**\n"
+        "يمكنكم التعليق وطرح الأسئلة الفقهية في المجموعة المرتبطة ليرد عليكم البوت فوراً بالدليل الشرعي.\n\n"
+        "*صدقة جارية للأخت الأندلسية غفر الله لها ولوالديها*"
+    )
+    try:
+        sent_message = await context.bot.send_message(chat_id=CHANNEL_ID, text=intro_text, parse_mode="Markdown")
+        await context.bot.pin_chat_message(chat_id=CHANNEL_ID, message_id=sent_message.message_id)
+        print("(تم إرسال وتثبيت الرسالة التعريفية فوراً عند الإقلاع)")
+    except Exception as e:
+        print(f"(e) خطأ أثناء إرسال الرسالة التعريفية: {e}")
+
+# --- حلقة الجدولة الزمنية بعد تصحيح تخطي الدقائق والتكرار ---
+async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
+    print("(... بدء حلقة الجدولة المدمجة الكبرى ...)")
+    print("(... بدء حلقة الجدولة والمراقبة الزمنية ...)")
+    
+    half_hour_counter = 0
+    last_checked_minute = "" # متغير ذكي لمنع تكرار النشر في نفس الدقيقة
+    
+    while True:
+        try:
+            now = datetime.datetime.now(LOCAL_TZ)
+            current_time = now.strftime("%H:%M")
+            
+            # فحص الأوقات اليومية الثابتة بشرط عدم تكرار الدقيقة المفتوحة
+            if current_time != last_checked_minute:
+                if current_time == "06:00":
+                    asyncio.create_task(send_daily_post(context, "azkar_sabah"))
+                    last_checked_minute = current_time
+                elif current_time == "08:00":
+                    asyncio.create_task(send_magazine_page(context, "النسخة الصباحية"))
+                    last_checked_minute = current_time
+                elif current_time == "12:00":
+                    asyncio.create_task(send_daily_post(context, "stories_sabah"))
+                    last_checked_minute = current_time
+                elif current_time == "17:00":
+                    asyncio.create_task(send_daily_post(context, "azkar_masa"))
+                    last_checked_minute = current_time
+                elif current_time == "21:30":
+                    asyncio.create_task(send_magazine_page(context, "النسخة المسائية"))
+                    last_checked_minute = current_time
+                elif current_time == "22:30":
+                    asyncio.create_task(send_daily_post(context, "stories_masa"))
+                    last_checked_minute = current_time
+
+            # فحص النشر الدوري المستقل كل 30 دقيقة (1800 ثانية)
+            if half_hour_counter >= 1800:
+                asyncio.create_task(send_to_channel(context, generate_jihad_content()))
+                half_hour_counter = 0
+                
+        except Exception as e:
+            print(f"(e) خطأ في حلقة الجدولة: {e}")
+            
+        await asyncio.sleep(10) # فحص مستقر وآمن كل 10 ثوانٍ
+        half_hour_counter += 10
+
+# --- دالة الرد الفقهي الإسلامي في التعليقات ---
+async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text or update.message.from_user.is_bot:
+        return
     user_text = update.message.text
-    user = update.message.from_user
-    
-    # تحديد صيغة النداء بناءً على نوع المتفاعل (إذا أمكن تحديد الجنس، وإلا فالافتراض مذكر)
-    # يمكنك تخصيص هذا الجزء، هنا سنعتمد صيغة مرنة تعتمد على طلبك
-    title_call = "أخي الموحد البطل"
-    
-    prompt = f"بصفتك باحثاً فقهياً بليغاً، رد على هذا السؤال أو التعليق مستنداً للكتاب والسنة بأسلوب فصيح. ابدأ الرد مباشرة بمخاطبة السائل بعبارة: (نعم {title_call}) ثم أكمل الإجابة الدقيقة:\nالسؤال: {user_text}"
-    
-    reply_content = generate_ai_content(prompt)
-    if reply_content:
-        await update.message.reply_text(reply_content)
+    user_name = update.message.from_user.first_name
+    try:
+        completion = ai_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": f"أنت باحث فقهي بليغ متمكن. ابدأ الرد مباشرة بمخاطبة السائل بعبارة تناسب اسمه {user_name} مثل (نعم أخي الموحد البطل) أو (نعم أختي الموحدة العفيفة) ثم قدم إجابة بليغة مستندة للكتاب والسنة بالفصحى وبدون ماركداون معقد."},
+                {"role": "user", "content": user_text}
+            ],
+            temperature=0.6,
+            max_tokens=1000
+        )
+        reply = completion.choices.message.content.strip()
+        if reply:
+            await update.message.reply_text(reply)
+    except Exception as e:
+        print(f"(e) خطأ في الرد: {e}")
 
-async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الترحيب الحماسي بالأعضاء الجدد"""
-    for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-        prompt = f"اكتب رسالة ترحيبية حماسية ومختصرة ومؤثرة جداً ترحب بـ العضو الجديد الذي انضم للمجموعة، تدعوه فيها للثبات على الحق ونصرة الدين."
-        welcome_text = generate_ai_content(prompt)
-        if welcome_text:
-            await update.message.reply_text(welcome_text)
-
-# --- إقلاع وتشغيل البوت ---
-
-async def on_startup(app: Application):
-    """تشغيل المهام المجدولة في الخلفية عند بدء البوت"""
-    asyncio.create_task(handle_fixed_schedules(app.context))
-    asyncio.create_task(handle_recurring_posts(app.context))
-    logger.info("تم إطلاق المهام المجدولة والدورية بنجاح.")
-
-def main():
-    """دالة التشغيل الرئيسية للبوت"""
-    # بناء التطبيق وتمرير التوكن
-    application = Application.builder().token(TOKEN).build()
-
-    # تسجيل مستمعي الرسائل والأحداث
-    # 1. الترحيب بالأعضاء الجدد
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
-    
-    # 2. الرد على الرسائل والتعليقات (تستثني الأوامر والرسائل الخاصة بالقنوات)
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_group_messages))
-
-    # ضبط دالة تفعيل المهام التلقائية عند تشغيل التطبيق
-    application.job_queue.run_once(lambda ctx: None, when=0) # مجرد تفعيل للـ JobQueue إن لزم
-    
-    # حيلة بسيطة لـ python-telegram-bot لتشغيل دوال الخلفية عبر asyncio دون الاعتماد الكلي على JobQueue المعقد برمجياً في التوقيت
-    loop = asyncio.get_event_loop()
-    loop.create_task(on_startup(application))
-
-    # بدء استقبال البيانات وتثبيت البوت في وضع العمل المستمر
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == '__main__':
-    main()
-                        
