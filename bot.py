@@ -198,7 +198,24 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(text=welcome_text, parse_mode="Markdown")
 
 def main():
-    application = Application.builder().token(TOKEN).build()
-    application.post_init = on_startup
+        # ⚡ تشغيل البوت في الخلفية بشكل مستمر
+    application.run_polling(close_loop=False)
 
+    # 🌐 سيرفر وهمي لإبقاء منصة Railway مستيقظة في وضع Active
+    import http.server
+    import socketserver
     
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format, *args): return # لمنع امتلاء السجلات
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is Running...")
+
+    port = int(os.getenv("PORT", 8080))
+    with socketserver.TCPServer(("", port), QuietHandler) as httpd:
+        httpd.serve_forever()
+
+if __name__ == "__main__":
+    main()
+
