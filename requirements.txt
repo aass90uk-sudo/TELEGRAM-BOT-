@@ -1,5 +1,4 @@
-python-telegram-bot[job-queue]
-hijridate==2.3.0
-pytz
-groq
-pypdf
+python-telegram-bot==21.10
+groq==0.18.0
+pypdf==5.1.0
+pytz==2024.2
