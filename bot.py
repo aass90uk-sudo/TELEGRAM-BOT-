@@ -7,6 +7,8 @@ from pypdf import PdfReader
 from groq import Groq
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
 # إعدادات مراقبة السيرفر
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -16,12 +18,26 @@ logger = logging.getLogger(__name__)
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
+PORT = int(os.environ.get("PORT", 8080)) # جلب المنفذ التلقائي من ريلواي
 
 # تهيئة عميل Groq والتوقيت كما هو في صورك
 ai_client = Groq(api_key=GROQ_KEY)
 LOCAL_TZ = pytz.timezone('Asia/Riyadh')
 
 PAGE_TRACKER_FILE = "current_page.txt"
+
+# --- خادم ويب وهمي لإجبار ريلواي على إبقاء السيرفر Active ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write("البوت يعمل بنجاح وفي وضع النشاط المستمر.".encode("utf-8"))
+
+def start_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+    logger.info(f"تم تشغيل خادم الحفاظ على النشاط على المنفذ: {PORT}")
+    server.serve_forever()
 
 def get_and_update_next_page():
     current_page = 0
@@ -56,7 +72,7 @@ def generate_ai_content(prompt_type: str) -> str:
         )
         return completion.choices.message.content.strip()
     except Exception as e:
-        logger.error(f"خطأ في توليد المحتوى الذكي: {e}")
+        logger.error(f"خطأ في偷ليد المحتوى الذكي: {e}")
         return ""
 
 def generate_jihad_content() -> str:
@@ -126,7 +142,6 @@ async def send_magazine_page(context: ContextTypes.DEFAULT_TYPE, period_name: st
         caption_message = f"📖 **من صفحات مجلتكم الموقرة ({period_name})** 📖\nالمنشور رقم: {page_num + 1}\n\n{fixed_text}\n\n*صدقة جارية للأخت الأندلسية غفر الله لها*"
         await send_to_channel(context, caption_message)
 
-# --- دالة الترحيب والتثبيت كما هي في صورك تماماً ---
 async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
     intro_text = (
         "✨ **مرحباً بكم في قناة ريحانة المغرب الأوسط الأندلسية** ✨\n\n"
@@ -151,57 +166,48 @@ async def send_welcome_intro(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"(e) خطأ أثناء إرسال الرسالة التعريفية: {e}")
 
-# --- إصلاح حلقة الجدولة المدمجة الخاصة بك لتنشر بدقة وثبات ---
 async def intensive_scheduler(context: ContextTypes.DEFAULT_TYPE):
     print("(... بدء حلقة الجدولة المدمجة الكبرى ...)")
     print("(... بدء حلقة الجدولة والمراقبة الزمنية ...)")
     
     half_hour_counter = 0
+    last_checked_minute = ""
     
     while True:
         try:
             now = datetime.datetime.now(LOCAL_TZ)
             current_time = now.strftime("%H:%M")
             
-            # المنشورات اليومية المجدولة المذكورة في صورك
-            if current_time == "06:00":
-                await send_daily_post(context, "azkar_sabah")
-                await asyncio.sleep(60) # تجميد ثوانٍ لمنع تكرار الإرسال في نفس الدقيقة
-                
-            elif current_time == "08:00":
-                await send_magazine_page(context, "النسخة الصباحية")
-                await asyncio.sleep(60)
-                
-            elif current_time == "12:00":
-                await send_daily_post(context, "stories_sabah")
-                await asyncio.sleep(60)
-                
-            elif current_time == "17:00":
-                await send_daily_post(context, "azkar_masa")
-                await asyncio.sleep(60)
-                
-            elif current_time == "21:30":
-                await send_magazine_page(context, "النسخة المسائية")
-                await asyncio.sleep(60)
-                
-            elif current_time == "22:30":
-                await send_daily_post(context, "stories_masa")
-                await asyncio.sleep(60)
+            if current_time != last_checked_minute:
+                if current_time == "06:00":
+                    asyncio.create_task(send_daily_post(context, "azkar_sabah"))
+                    last_checked_minute = current_time
+                elif current_time == "08:00":
+                    asyncio.create_task(send_magazine_page(context, "النسخة الصباحية"))
+                    last_checked_minute = current_time
+                elif current_time == "12:00":
+                    asyncio.create_task(send_daily_post(context, "stories_sabah"))
+                    last_checked_minute = current_time
+                elif current_time == "17:00":
+                    asyncio.create_task(send_daily_post(context, "azkar_masa"))
+                    last_checked_minute = current_time
+                elif current_time == "21:30":
+                    asyncio.create_task(send_magazine_page(context, "النسخة المسائية"))
+                    last_checked_minute = current_time
+                elif current_time == "22:30":
+                    asyncio.create_task(send_daily_post(context, "stories_masa"))
+                    last_checked_minute = current_time
 
-            # المنشور الحماسي الدوري المتكرر كل 30 دقيقة (1800 ثانية)
             if half_hour_counter >= 1800:
-                text = generate_jihad_content()
-                if text:
-                    await send_to_channel(context, text)
-                half_hour_counter = 0 # تصفير العداد ليعمل النصف ساعة القادمة
+                asyncio.create_task(send_to_channel(context, generate_jihad_content()))
+                half_hour_counter = 0
                 
         except Exception as e:
             print(f"(e) خطأ في حلقة الجدولة: {e}")
             
-        await asyncio.sleep(10) # فحص الوقت كل 10 ثوانٍ لضمان الدقة العالية والاستقرار
+        await asyncio.sleep(10)
         half_hour_counter += 10
 
-# --- دالة الرد الفقهي الإسلامي في التعليقات ---
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text or update.message.from_user.is_bot:
         return
@@ -213,15 +219,3 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=[
                 {"role": "system", "content": f"أنت باحث فقهي بليغ متمكن. ابدأ الرد مباشرة بمخاطبة السائل بعبارة تناسب اسمه {user_name} مثل (نعم أخي الموحد البطل) أو (نعم أختي الموحدة العفيفة) ثم قدم إجابة بليغة مستندة للكتاب والسنة بالفصحى وبدون ماركداون معقد."},
                 {"role": "user", "content": user_text}
-            ],
-            temperature=0.6,
-            max_tokens=1000
-        )
-        reply = completion.choices.message.content.strip()
-        if reply:
-            await update.message.reply_text(reply)
-    except Exception as e:
-        print(f"(e) خطأ في الرد: {e}")
-
-async def on_startup(app: Application):
-    """إرسال الرسالة الترحيبية وتثبيتها وتشغيل الجدولة تلقائياً فور إقلاع البوت"""
