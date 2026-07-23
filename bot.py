@@ -232,9 +232,8 @@ async def post_init(application: Application):
     jq.run_daily(job_magazine_masa, time=dtime(21, 30, tzinfo=tz), name="magazine_masa")
     jq.run_daily(job_stories_masa,  time=dtime(22, 30, tzinfo=tz), name="stories_masa")
 
-    # النشر الدوري كل 30 دقيقة
-    jq.run_repeating(job_jihad_periodic, interval=1800, first=60, name="jihad_periodic")
-
+    # النشر الدوري كل ساعتين (7200 ثانية)
+jq.run_repeating(job_jihad_periodic, interval=7200, first=60, name="jihad_periodic")
     print("✅ تم تسجيل جميع الوظائف في JobQueue.")
 
     # إرسال الرسالة التعريفية فوراً
