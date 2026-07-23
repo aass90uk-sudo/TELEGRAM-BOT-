@@ -1,5 +1,4 @@
-python-telegram-bot[job-queue]==21.10
-groq
-pypdf
-pytz
-hijri-converter
+python-telegram-bot==20.8
+groq==0.18.0
+PyMuPDF==1.23.26
+schedule==1.2.1
