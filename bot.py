@@ -186,7 +186,7 @@ async def send_welcome_intro(bot: Bot):
         "📄 **09:30 مساءً:** مجلة القناة (النسخة المسائية) من الـ PDF.\n"
         "🌌 **10:30 مساءً:** قصة مسائية وتراث دزيري أندلسي.\n\n"
         "⚡ **المحتوى الدوري المتجدد:**\n"
-        "🔄 **كل نصف ساعة بدون توقف:** مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، "
+        "🔄 **كل ساعتين بدون توقف:** مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، "
         "ومراغمة الكفار، ودعاء مستمر للمجاهدين الأبطال في كل بقاع الأرض وثغور المسلمين.\n\n"
         "💬 **ميزة التفاعل الفوري:**\n"
         "يمكنكم طرح أسئلتكم الشرعية في التعليقات وسيقوم البوت بالرد الفقهي الفوري!\n\n"
@@ -233,7 +233,7 @@ async def post_init(application: Application):
     jq.run_daily(job_stories_masa,  time=dtime(22, 30, tzinfo=tz), name="stories_masa")
 
     # النشر الدوري كل ساعتين (7200 ثانية)
-jq.run_repeating(job_jihad_periodic, interval=7200, first=60, name="jihad_periodic")
+    jq.run_repeating(job_jihad_periodic, interval=7200, first=60, name="jihad_periodic")
     print("✅ تم تسجيل جميع الوظائف في JobQueue.")
 
     # إرسال الرسالة التعريفية فوراً
