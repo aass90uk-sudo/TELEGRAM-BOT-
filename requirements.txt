@@ -1,4 +1,3 @@
-python-telegram-bot==20.8
-groq==0.18.0
-PyMuPDF==1.23.26
-schedule==1.2.1
+python-telegram-bot
+google-genai
+schedule
