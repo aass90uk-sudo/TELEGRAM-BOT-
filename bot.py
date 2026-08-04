@@ -1,117 +1,173 @@
 import os
+import logging
 import asyncio
-import schedule
-import time
-import threading
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from datetime import datetime
+import pytz
+from telegram import Update, Chat
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 from google import genai
 from google.genai import types
 
-# 🔑 جلب المفاتيح والتوكينات من متغيرات البيئة
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ضع_توكن_البوت_هنا")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ضع_مفتاح_GEMINI_هنا")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@your_channel_username")  # معرف القناة
+# 🔑 المتغيرات البيئية
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@Athar_Dz_Islamic")
 
-# تهيئة عميل Gemini باستخدام المكتبة الرسمية الحديثة google-genai
-client = genai.Client(api_key=GEMINI_API_KEY)
+# تهيئة السجلات (Logging)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# قائمة مواضيع أنثروبولوجية من منظور إسلامي
-TOPICS = [
-    "الأنثروبولوجيا اللغوية وتعليم الأسماء لآدم عليه السلام",
-    "عمران المجتمعات والبناء الاجتماعي عند ابن خلدون",
-    "مفهوم الفطرة كأساس بنائي في السلوك الإنساني",
-    "علم الإنسان الثقافي ومفهوم التعارف بين الشعوب والأمم",
-    "القرابة وصلة الرحم وأثرها في تماسك المجتمع",
-    "الطقوس الشعائرية وأثر العبادات في الضبط والتماسك الاجتماعي",
-    "الحضارات القديمة والسنن الإلهية في قيامها وسقوطها",
-    "أنثروبولوجيا الأخلاق والقيم الإنسانية الفطرية",
-    "التكيف البشري وعمارة الأرض كواجب استخلافي"
-]
-topic_index = 0
+# تهيئة عميل Gemini الرسمي
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-def generate_post_with_gemini(topic: str, time_of_day: str) -> str:
-    """توليد منشور أنثروبولوجي بإطار إسلامي باستخدام نموذج Gemini"""
-    system_instruction = (
-        "تصرّف كعالم أنثروبولوجيا (علم الإنسان) ومفكر إسلامي خبير، متحدث باللغة العربية الفصحى. "
-        "اكتب منشوراً مشوقاً ومختصراً جداً ينظر إلى الأنثروبولوجيا والمجتمعات البشريّة من منظور إسلامي أصيل "
-        "مستنداً إلى مفهوم التكريم الإلهي للإنسان، الفطرة، ومقاصد الشريعة والعمران البشري. "
-        "قسّم المقال إلى نقاط واضحة باستخدام الإيموجي. "
-        "تنبيه صارم: تجنب النظريات المادية المنافية للعقيدة الإسلامية، ولا تستخدم رموز الماركداون المربعة أو المعقدة لتجنب أخطاء الإرسال."
-    )
-    
-    prompt = f"اكتب منشوراً أنثروبولوجياً بأسلوب ومفاهيم إسلامية لنشرة '{time_of_day}' عن الموضوع التالي: {topic}"
+# --- التوجيهات الدعوية للذكاء الاصطناعي ---
+SYSTEM_PROMPT_POST = (
+    "أنت داعية ومفكر إسلامي بليغ، تكتب بلغة عربية فصيحة ومؤثرة جداً. "
+    "اكتب منشوراً إيمانيا حماسياً موجزاً يدعو لثبات الأمة، التمسك بالعقيدة، الولاء والبراء، "
+    "مراغمة أعداء الدين، والدعاء للمستضعفين وثغور المجاهدين في كل مكان. "
+    "استخدم إيموجيات مناسبة، ولا تستخدم تنسيقات الماركداون المعقدة."
+)
 
+SYSTEM_PROMPT_REPLY = (
+    "أنت مستشار دعوي وفقهي حكيم، تجيب على أسئلة المسلمين في التعليقات من الكتاب والسنة بأسلوب راقٍ. "
+    "خاطب السائل الذكر بـ 'نعم أخي الموحد البطل' والسائلة الأُنثى بـ 'نعم أختي الموحدة العفيفة'. "
+    "اجعل ردك موجزاً ومباشراً ودون استخدام رموز تنسيق معقدة."
+)
+
+SYSTEM_PROMPT_WELCOME = (
+    "اكتب رسالة ترحيبية حماسية وموجزة جداً لعضو جديد انضم للقناة الدعوية، "
+    "تحثه فيها على الثبات على الحق ونصرة الدين."
+)
+
+def generate_ai_text(prompt: str, system_instruction: str) -> str:
+    """دالة المساعدة لاستدعاء Gemini API"""
+    if not client:
+        return "⚠️ مفتاح GEMINI_API_KEY غير مضبوط."
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.5,
+                temperature=0.4,
                 max_output_tokens=800,
             )
         )
         return response.text.strip()
     except Exception as e:
-        print(f"⚠️ خطأ في توليد المحتوى عبر Gemini: {e}")
-        return f"✨ {topic} ✨\n\nيتناول موضوع اليوم الإنسان والحضارة من منظور يتفكر في سنن الله في الخلق والعمران وتتابع الأمم."
+        logger.error(f"خطأ في استدعاء Gemini: {e}")
+        return "حدث خطأ أثناء توليد المحتوى."
 
-# 📡 دالة النشر المجدول إلى القناة
-async def send_scheduled_post(app, time_of_day: str):
-    global topic_index
-    current_topic = TOPICS[topic_index % len(TOPICS)]
-    topic_index += 1
-
-    print(f"⏳ جاري تحضير ونشر منشور {time_of_day} عن: {current_topic}...")
-
-    # توليد النص عبر Gemini
-    post_text = generate_post_with_gemini(current_topic, time_of_day)
-    full_message = f"🌅 **منشور {time_of_day}**\n\n✨ **{current_topic}** ✨\n\n{post_text}"
-
+# 🔄 وظيفة النشر الدوري (كل 3 ساعات)
+async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("⏳ جاري نشر الموعظة الدورية (كل 3 ساعات)...")
+    prompt = "اكتب موعظة إيمانية حماسية متجددة ومؤثرة عن الثبات ونصرة الدين."
+    content = generate_ai_text(prompt, SYSTEM_PROMPT_POST)
+    
+    full_text = f"⚔️ **قبسات إيمانية** ⚔️\n\n{content}"
     try:
-        await app.bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=full_message,
-            parse_mode="Markdown"
-        )
-        print(f"✅ تم نشر منشور {time_of_day} بنجاح!")
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=full_text)
+        logger.info("✅ تم النشر الدوري بنجاح في القناة.")
     except Exception as e:
-        print(f"❌ فشل إرسال المنشور إلى القناة: {e}")
+        logger.error(f"❌ فشل النشر في القناة: {e}")
 
-# ⏰ حلقة الجدولة الزمنية (يمكنك تعديل الأوقات أو إضافة أوقات أخرى)
-def run_scheduler(loop, app):
-    # مواعيد النشر اليومية (صباحاً ومساءً)
-    schedule.every().day.at("07:00").do(
-        lambda: asyncio.run_coroutine_threadsafe(send_scheduled_post(app, "الصباح"), loop)
-    )
-    schedule.every().day.at("19:00").do(
-        lambda: asyncio.run_coroutine_threadsafe(send_scheduled_post(app, "المساء"), loop)
-    )
+# 📅 الجدولة اليومية المحددة (الأذكار والقصص)
+async def daily_scheduled_jobs(context: ContextTypes.DEFAULT_TYPE):
+    tz = pytz.timezone("Asia/Riyadh")
+    now = datetime.now(tz)
+    time_str = now.strftime("%H:%M")
 
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+    prompt = ""
+    title = ""
 
-# 🚀 أمر البداية للمستخدمين /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if time_str == "06:00":
+        title = "☀️ أذكار الصباح والورد الإيماني"
+        prompt = "اكتب رسالة أذكار الصباح مع موعظة صباحية حماسية لافتتاح اليوم بالتوكل على الله."
+    elif time_str == "12:00":
+        title = "📜 قصة وعبرة من التراث الإسلامي"
+        prompt = "اكتب قصة قصيرة ملهمة من تراث الصحابة أو التابعين فيها عبرة عن الشجاعة والثبات."
+    elif time_str == "17:00": # 05:00 مساءً
+        title = "🌙 أذكار المساء وتجديد الإيمان"
+        prompt = "اكتب رسالة أذكار المساء مع تذكير بالإنابة والاستغفار والثبات."
+    elif time_str == "22:30":
+        title = "🌌 حكاية من عبق الأندلس والمغرب الأوسط"
+        prompt = "اكتب حكاية تراثية موجزة ومؤثرة عن علماء أو مجاهدي الأندلس والجزائر (المغرب الأوسط)."
+
+    if prompt:
+        content = generate_ai_text(prompt, SYSTEM_PROMPT_POST)
+        full_text = f"✨ **{title}** ✨\n\n{content}"
+        try:
+            await context.bot.send_message(chat_id=CHANNEL_ID, text=full_text)
+            logger.info(f"✅ تم نشر الفقرة المجدولة: {title}")
+        except Exception as e:
+            logger.error(f"❌ فشل نشر الفقرة المجدولة: {e}")
+
+# 💬 الرد التفاعلي على التعليقات والأسئلة
+async def handle_group_comments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if not msg or not msg.text or (msg.from_user and msg.from_user.is_bot):
+        return
+
+    # التحقق من وجود سؤال أو استفسار
+    user_text = msg.text.strip()
+    if len(user_text) < 5:
+        return
+
+    prompt = f"السائل: {msg.from_user.full_name}\nالرسالة: {user_text}"
+    reply = generate_ai_text(prompt, SYSTEM_PROMPT_REPLY)
+    
+    try:
+        await msg.reply_text(reply)
+    except Exception as e:
+        logger.error(f"خطأ في الرد على التعليق: {e}")
+
+# 🎉 الترحيب بالأعضاء الجدد
+async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+        prompt = f"رحب بالعضو الجديد: {member.full_name}"
+        welcome_msg = generate_ai_text(prompt, SYSTEM_PROMPT_WELCOME)
+        await update.message.reply_text(f"أهلاً بك يا {member.full_name} 🌹\n\n{welcome_msg}")
+
+# 🚀 أمر /start
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "السلام عليكم ورحمة الله وبركاته 🌹\n"
-        "أهلاً بك! البوت يعمل حالياً بنجاح وينشر منشورات أنثروبولوجية إسلامية تلقائياً وبشكل مجدول إلى القناة."
+        "البوت الدعوي يعمل بنجاح ومزود بذكاء Gemini للنشر الدوري والمجدول."
     )
 
-# ⚙️ تشغيل التطبيق
-if __name__ == '__main__':
+def main():
     if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-        print("❌ خطأ: يرجى التأكد من ضبط TELEGRAM_TOKEN و GEMINI_API_KEY في متغيرات البيئة!")
-    else:
-        app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
+        logger.error("❌ المتغيرات TELEGRAM_TOKEN أو GEMINI_API_KEY مفقودة!")
+        return
 
-        # تشغيل الجدولة في الخلفية
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        threading.Thread(target=run_scheduler, args=(loop, app), daemon=True).start()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-        print("🚀 البوت يعمل بنجاح مع Gemini وبدون مجلة!")
-        app.run_polling()
-        
+    # 1. إعداد النشر التلقائي كل 3 ساعات (10800 ثانية)
+    job_queue = app.job_queue
+    job_queue.run_repeating(auto_post_job, interval=10800, first=10)
+
+    # 2. إعداد فحص المهام المجدولة بالدقيقة (للأذكار والقصص)
+    job_queue.run_repeating(daily_scheduled_jobs, interval=60, first=5)
+
+    # 3. الأوامر والمستمعين
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, handle_group_comments))
+
+    logger.info("🚀 تم تشغيل البوت الدعوي بنجاح!")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
+    
