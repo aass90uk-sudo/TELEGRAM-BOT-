@@ -5,16 +5,15 @@ from pytz import timezone
 from hijri_converter import Gregorian
 from telegram import Update, Bot
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from GEMINI import GEMINI
-from pypdf import PdfReader
+from google import genai
 
 # الإعدادات البيئية
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-GROQ_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 LOCAL_TZ = timezone("Asia/Riyadh")
 
-ai_client = GEMINI(api_key=GEMINI_KEY)
+ai_client = genai.Client(api_key=GEMINI_KEY)
 
 # ─────────────────────────────────────────────
 # أدوات مساعدة
@@ -31,48 +30,6 @@ def footer():
     return "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
 
 # ─────────────────────────────────────────────
-# إدارة صفحات الـ PDF (متزامن – يُستدعى عبر to_thread)
-# ─────────────────────────────────────────────
-
-def get_and_update_next_page():
-    page_file = "current_page.txt"
-    try:
-        with open(page_file, "r") as f:
-            current_page = int(f.read().strip())
-    except Exception:
-        current_page = 0
-    with open(page_file, "w") as f:
-        f.write(str(current_page + 1))
-    return current_page
-
-def _sync_extract_and_fix_pdf(page_num):
-    pdf_path = "magazine.pdf"
-    if not os.path.exists(pdf_path):
-        return "⚠️ تنبيه: يرجى رفع ملف المجلة باسم magazine.pdf إلى المستودع."
-    reader = PdfReader(pdf_path)
-    if page_num >= len(reader.pages):
-        with open("current_page.txt", "w") as f:
-            f.write("1")
-        page_num = 0
-    raw_text = reader.pages[page_num].extract_text()
-    if not raw_text or len(raw_text.strip()) < 10:
-        return "📖 صفحة تحتوي على صور أو تصاميم، تأملوا فيها يا رعاكم الله."
-    completion = ai_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content":
-                "أنت خبير تدقيق لغوي وشرعي إسلامي. أمامك نص مستخرج من صفحة مجلة إسلامية أندلسية. "
-                "قم بإعادة تجميع الكلمات المكسورة وصياغتها بلغة فصيحة بليغة جداً ومتناسقة."},
-            {"role": "user", "content": raw_text}
-        ],
-        temperature=0.3
-    )
-    return completion.choices[0].message.content
-
-async def extract_and_fix_pdf_text(page_num):
-    return await asyncio.to_thread(_sync_extract_and_fix_pdf, page_num)
-
-# ─────────────────────────────────────────────
 # توليد المحتوى عبر الذكاء الاصطناعي (متزامن – يُستدعى عبر to_thread)
 # ─────────────────────────────────────────────
 
@@ -87,29 +44,27 @@ PROMPTS = {
         "ومراغمة الكفار في جزيرة العرب، والدعاء للمجاهدين في كل ثغور المسلمين."
 }
 
-def _sync_generate(prompt_type):
-    completion = ai_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": PROMPTS[prompt_type]}],
-        temperature=0.7
+def _sync_generate(prompt_text):
+    response = ai_client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt_text
     )
-    return completion.choices[0].message.content
+    return response.text
 
 async def generate_content(prompt_type):
-    return await asyncio.to_thread(_sync_generate, prompt_type)
+    return await asyncio.to_thread(_sync_generate, PROMPTS[prompt_type])
 
 def _sync_fiqh_reply(user_name, user_text):
-    completion = ai_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content":
-                "أنت مساعد إسلامي فقيه، ترد على أسئلة المسلمين بأدب وفق الكتاب والسنة بفهم سلف الأمة. "
-                "يجب أن تبدأ ردك دائماً بعبارة حافلة مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة'."},
-            {"role": "user", "content": f"السائل: {user_name}، السؤال: {user_text}"}
-        ],
-        temperature=0.5
+    system_instruction = (
+        "أنت مساعد إسلامي فقيه، ترد على أسئلة المسلمين بأدب وفق الكتاب والسنة بفهم سلف الأمة. "
+        "يجب أن تبدأ ردك دائماً بعبارة حافلة مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة'."
     )
-    return completion.choices[0].message.content
+    full_prompt = f"{system_instruction}\n\nالسائل: {user_name}، السؤال: {user_text}"
+    response = ai_client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=full_prompt
+    )
+    return response.text
 
 # ─────────────────────────────────────────────
 # دوال الإرسال للقناة
@@ -128,23 +83,6 @@ async def send_daily_post(bot: Bot, prompt_type: str, label: str):
     except Exception as e:
         print(f"❌ خطأ في النشر ({label}): {e}")
 
-async def send_magazine_page(bot: Bot, period_name: str):
-    try:
-        print(f"📤 مجلة {period_name}...")
-        page_num = get_and_update_next_page()
-        fixed_text = await extract_and_fix_pdf_text(page_num)
-        if fixed_text:
-            msg = (
-                f"{get_hijri_date()}\n\n"
-                f"📖 **من صفحات مجلتكم ({period_name})**\n"
-                f"📄 **الصفحة: {page_num + 1}**\n\n"
-                f"{fixed_text}{footer()}"
-            )
-            await bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode="Markdown")
-        print(f"✅ تم نشر مجلة {period_name}")
-    except Exception as e:
-        print(f"❌ خطأ في نشر المجلة ({period_name}): {e}")
-
 # ─────────────────────────────────────────────
 # وظائف JobQueue (callbacks)
 # ─────────────────────────────────────────────
@@ -152,17 +90,11 @@ async def send_magazine_page(bot: Bot, period_name: str):
 async def job_azkar_sabah(context: ContextTypes.DEFAULT_TYPE):
     await send_daily_post(context.bot, "azkar_sabah", "أذكار الصباح")
 
-async def job_magazine_sabah(context: ContextTypes.DEFAULT_TYPE):
-    await send_magazine_page(context.bot, "الصباحية من الـ PDF")
-
 async def job_stories_sabah(context: ContextTypes.DEFAULT_TYPE):
     await send_daily_post(context.bot, "stories_sabah", "قصة الظهر")
 
 async def job_azkar_masa(context: ContextTypes.DEFAULT_TYPE):
     await send_daily_post(context.bot, "azkar_masa", "أذكار المساء")
-
-async def job_magazine_masa(context: ContextTypes.DEFAULT_TYPE):
-    await send_magazine_page(context.bot, "المسائية من الـ PDF")
 
 async def job_stories_masa(context: ContextTypes.DEFAULT_TYPE):
     await send_daily_post(context.bot, "stories_masa", "قصة الليل")
@@ -180,13 +112,11 @@ async def send_welcome_intro(bot: Bot):
         "يسرنا أن نعلن لكم عن تفعيل **نظام الذكاء الاصطناعي الإسلامي** لإدارة ونشر محتوى القناة تلقائياً على مدار 24 ساعة بجدول منظم كالتالي:\n\n"
         "⏰ **المحتوى اليومي الثابت:**\n"
         "☀️ **06:00 صباحاً:** أذكار الصباح المأثورة وبث الطمأنينة.\n"
-        "📖 **08:00 صباحاً:** مجلة القناة (النسخة الصباحية) من الـ PDF.\n"
         "📜 **12:00 ظهراً:** قصة صباحية وعبرة ملهمة.\n"
         "🌙 **05:00 مساءً:** أذكار المساء لحفظكم وتحصينكم.\n"
-        "📄 **09:30 مساءً:** مجلة القناة (النسخة المسائية) من الـ PDF.\n"
         "🌌 **10:30 مساءً:** قصة مسائية وتراث دزيري أندلسي.\n\n"
         "⚡ **المحتوى الدوري المتجدد:**\n"
-        "🔄 **كل نصف ساعة بدون توقف:** مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، "
+        "🔄 **كل 3 ساعات بدون توقف:** مواعظ إيمانية مكثفة، منشورات عن عقيدة الولاء والبراء، "
         "ومراغمة الكفار، ودعاء مستمر للمجاهدين الأبطال في كل بقاع الأرض وثغور المسلمين.\n\n"
         "💬 **ميزة التفاعل الفوري:**\n"
         "يمكنكم طرح أسئلتكم الشرعية في التعليقات وسيقوم البوت بالرد الفقهي الفوري!\n\n"
@@ -226,14 +156,12 @@ async def post_init(application: Application):
     # الوظائف اليومية الثابتة (توقيت مكة = Asia/Riyadh)
     tz = LOCAL_TZ
     jq.run_daily(job_azkar_sabah,   time=dtime(6,  0,  tzinfo=tz), name="azkar_sabah")
-    jq.run_daily(job_magazine_sabah,time=dtime(8,  0,  tzinfo=tz), name="magazine_sabah")
     jq.run_daily(job_stories_sabah, time=dtime(12, 0,  tzinfo=tz), name="stories_sabah")
     jq.run_daily(job_azkar_masa,    time=dtime(17, 0,  tzinfo=tz), name="azkar_masa")
-    jq.run_daily(job_magazine_masa, time=dtime(21, 30, tzinfo=tz), name="magazine_masa")
     jq.run_daily(job_stories_masa,  time=dtime(22, 30, tzinfo=tz), name="stories_masa")
 
-    # النشر الدوري كل 30 دقيقة
-    jq.run_repeating(job_jihad_periodic, interval=1800, first=60, name="jihad_periodic")
+    # النشر الدوري كل 3 ساعات
+    jq.run_repeating(job_jihad_periodic, interval=10800, first=60, name="jihad_periodic")
 
     print("✅ تم تسجيل جميع الوظائف في JobQueue.")
 
