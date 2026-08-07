@@ -1,19 +1,21 @@
 import os
 import asyncio
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from datetime import datetime, time as dtime
 from pytz import timezone
 from hijri_converter import Gregorian
 from telegram import Update, Bot
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from google import genai
 
 # الإعدادات البيئية
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 LOCAL_TZ = timezone("Asia/Riyadh")
-
-ai_client = genai.Client(api_key=GEMINI_KEY)
 
 # ─────────────────────────────────────────────
 # أدوات مساعدة
@@ -30,7 +32,7 @@ def footer():
     return "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
 
 # ─────────────────────────────────────────────
-# توليد المحتوى عبر الذكاء الاصطناعي (متزامن – يُستدعى عبر to_thread)
+# توليد المحتوى عبر Groq (متزامن – يُستدعى عبر to_thread)
 # ─────────────────────────────────────────────
 
 PROMPTS = {
@@ -44,12 +46,51 @@ PROMPTS = {
         "ومراغمة الكفار في جزيرة العرب، والدعاء للمجاهدين في كل ثغور المسلمين."
 }
 
-def _sync_generate(prompt_text):
-    response = ai_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt_text
+def _groq_chat(prompt_text, system_instruction=None):
+    if not GROQ_KEY:
+        raise RuntimeError("المتغير GROQ_API_KEY غير مضبوط.")
+
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": prompt_text})
+
+    request = Request(
+        GROQ_URL,
+        data=json.dumps({
+            "model": GROQ_MODEL,
+            "messages": messages,
+            "temperature": 0.8,
+            "max_tokens": 1200,
+        }).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {GROQ_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
     )
-    return response.text
+
+    try:
+        with urlopen(request, timeout=90) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"فشل Groq ({error.code}): {details[:500]}") from error
+    except URLError as error:
+        raise RuntimeError(f"تعذر الاتصال بخدمة Groq: {error.reason}") from error
+
+    try:
+        text = payload["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError("استجابة Groq غير متوقعة.") from error
+
+    if not text:
+        raise RuntimeError("أعاد Groq نصاً فارغاً.")
+    return text
+
+def _sync_generate(prompt_text):
+    return _groq_chat(prompt_text)
 
 async def generate_content(prompt_type):
     return await asyncio.to_thread(_sync_generate, PROMPTS[prompt_type])
@@ -60,11 +101,7 @@ def _sync_fiqh_reply(user_name, user_text):
         "يجب أن تبدأ ردك دائماً بعبارة حافلة مثل: 'نعم أخي الموحد البطل' أو 'نعم أختي الموحدة العفيفة'."
     )
     full_prompt = f"{system_instruction}\n\nالسائل: {user_name}، السؤال: {user_text}"
-    response = ai_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=full_prompt
-    )
-    return response.text
+    return _groq_chat(full_prompt)
 
 # ─────────────────────────────────────────────
 # دوال الإرسال للقناة
