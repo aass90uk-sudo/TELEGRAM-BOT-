@@ -1,12 +1,11 @@
 import os
 import asyncio
-import json
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from datetime import datetime, time as dtime
 from pytz import timezone
 from hijri_converter import Gregorian
+from groq import Groq
 from telegram import Update, Bot
+from telegram.error import BadRequest
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # الإعدادات البيئية
@@ -14,7 +13,6 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 LOCAL_TZ = timezone("Asia/Riyadh")
 
 # ─────────────────────────────────────────────
@@ -55,35 +53,17 @@ def _groq_chat(prompt_text, system_instruction=None):
         messages.append({"role": "system", "content": system_instruction})
     messages.append({"role": "user", "content": prompt_text})
 
-    request = Request(
-        GROQ_URL,
-        data=json.dumps({
-            "model": GROQ_MODEL,
-            "messages": messages,
-            "temperature": 0.8,
-            "max_tokens": 1200,
-        }).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {GROQ_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-
     try:
-        with urlopen(request, timeout=90) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        details = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"فشل Groq ({error.code}): {details[:500]}") from error
-    except URLError as error:
-        raise RuntimeError(f"تعذر الاتصال بخدمة Groq: {error.reason}") from error
-
-    try:
-        text = payload["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError("استجابة Groq غير متوقعة.") from error
+        client = Groq(api_key=GROQ_KEY)
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=0.8,
+            max_tokens=1200,
+        )
+        text = (response.choices[0].message.content or "").strip()
+    except Exception as error:
+        raise RuntimeError(f"فشل Groq: {error}") from error
 
     if not text:
         raise RuntimeError("أعاد Groq نصاً فارغاً.")
@@ -111,11 +91,16 @@ async def send_daily_post(bot: Bot, prompt_type: str, label: str):
     try:
         print(f"📤 {label}...")
         text = await generate_content(prompt_type)
-        await bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=f"{get_hijri_date()}\n\n{text}{footer()}",
-            parse_mode="Markdown"
-        )
+        post_text = f"{get_hijri_date()}\n\n{text}{footer()}"
+        try:
+            await bot.send_message(
+                chat_id=CHANNEL_ID,
+                text=post_text,
+                parse_mode="Markdown",
+            )
+        except BadRequest as error:
+            print(f"⚠️ تعذر تنسيق منشور {label} بـ Markdown، سيتم إرساله كنص عادي: {error}")
+            await bot.send_message(chat_id=CHANNEL_ID, text=post_text)
         print(f"✅ تم النشر: {label}")
     except Exception as e:
         print(f"❌ خطأ في النشر ({label}): {e}")
@@ -172,13 +157,19 @@ async def send_welcome_intro(bot: Bot):
 # ─────────────────────────────────────────────
 
 async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text or update.message.from_user.is_bot:
+    message = update.effective_message
+    if not message or not message.text or not message.from_user or message.from_user.is_bot:
         return
-    user_text = update.message.text
-    user_name = update.message.from_user.first_name
+    print(f"📩 رسالة مجموعة واردة من chat_id={message.chat_id} message_id={message.message_id}")
+    user_text = message.text
+    user_name = message.from_user.first_name
     try:
         reply = await asyncio.to_thread(_sync_fiqh_reply, user_name, user_text)
-        await update.message.reply_text(text=reply, parse_mode="Markdown")
+        try:
+            await message.reply_text(text=reply, parse_mode="Markdown")
+        except BadRequest as error:
+            print(f"⚠️ تعذر تنسيق الرد بـ Markdown، سيتم إرساله كنص عادي: {error}")
+            await message.reply_text(text=reply)
     except Exception as e:
         print(f"خطأ في الرد على التعليق: {e}")
 
@@ -189,6 +180,18 @@ async def reply_to_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application: Application):
     bot = application.bot
     jq = application.job_queue
+
+    try:
+        bot_info = await bot.get_me()
+        channel = await bot.get_chat(CHANNEL_ID)
+        channel_member = await bot.get_chat_member(channel.id, bot_info.id)
+        print(
+            f"✅ Telegram متصل: @{bot_info.username} | "
+            f"القناة: {channel.title or channel.id} | "
+            f"حالة البوت: {channel_member.status}"
+        )
+    except Exception as error:
+        print(f"⚠️ تعذر التحقق من اتصال Telegram أو صلاحيات القناة: {error}")
 
     # الوظائف اليومية الثابتة (توقيت مكة = Asia/Riyadh)
     tz = LOCAL_TZ
@@ -218,7 +221,12 @@ def main():
         .post_init(post_init)
         .build()
     )
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_to_member))
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+            reply_to_member,
+        )
+    )
     print("✅ البوت يستمع للرسائل...")
     application.run_polling(drop_pending_updates=True)
 
