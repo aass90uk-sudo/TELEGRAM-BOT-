@@ -3,7 +3,8 @@ import asyncio
 from datetime import datetime, time as dtime
 from pytz import timezone
 from hijri_converter import Gregorian
-from groq import Groq
+from google import genai
+from google.genai import types
 from telegram import Update, Bot
 from telegram.error import BadRequest
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
@@ -11,8 +12,8 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 # الإعدادات البيئية
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 LOCAL_TZ = timezone("Asia/Riyadh")
 
 # ─────────────────────────────────────────────
@@ -30,7 +31,7 @@ def footer():
     return "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها."
 
 # ─────────────────────────────────────────────
-# توليد المحتوى عبر Groq (متزامن – يُستدعى عبر to_thread)
+# توليد المحتوى عبر Gemini (متزامن – يُستدعى عبر to_thread)
 # ─────────────────────────────────────────────
 
 PROMPTS = {
@@ -44,33 +45,33 @@ PROMPTS = {
         "ومراغمة الكفار في جزيرة العرب، والدعاء للمجاهدين في كل ثغور المسلمين."
 }
 
-def _groq_chat(prompt_text, system_instruction=None):
-    if not GROQ_KEY:
-        raise RuntimeError("المتغير GROQ_API_KEY غير مضبوط.")
-
-    messages = []
-    if system_instruction:
-        messages.append({"role": "system", "content": system_instruction})
-    messages.append({"role": "user", "content": prompt_text})
+def _gemini_chat(prompt_text, system_instruction=None):
+    if not GEMINI_KEY:
+        raise RuntimeError("المتغير GEMINI_API_KEY غير مضبوط.")
 
     try:
-        client = Groq(api_key=GROQ_KEY)
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=messages,
+        client = genai.Client(api_key=GEMINI_KEY)
+        config = types.GenerateContentConfig(
             temperature=0.8,
-            max_tokens=1200,
+            max_output_tokens=1200,
         )
-        text = (response.choices[0].message.content or "").strip()
+        if system_instruction:
+            config.system_instruction = system_instruction
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt_text,
+            config=config,
+        )
+        text = (response.text or "").strip()
     except Exception as error:
-        raise RuntimeError(f"فشل Groq: {error}") from error
+        raise RuntimeError(f"فشل Gemini: {error}") from error
 
     if not text:
-        raise RuntimeError("أعاد Groq نصاً فارغاً.")
+        raise RuntimeError("أعاد Gemini نصاً فارغاً.")
     return text
 
 def _sync_generate(prompt_text):
-    return _groq_chat(prompt_text)
+    return _gemini_chat(prompt_text)
 
 async def generate_content(prompt_type):
     return await asyncio.to_thread(_sync_generate, PROMPTS[prompt_type])
@@ -82,7 +83,7 @@ def _sync_fiqh_reply(user_name, user_text):
         "اكتب تعليقاً مفصلاً وشاملاً، على أن يتراوح طوله بين 1024 إلى 1100 حرف ولا يقل عن ذلك."    
     )
     full_prompt = f"{system_instruction}\n\nالسائل: {user_name}، السؤال: {user_text}"
-    return _groq_chat(full_prompt)
+    return _gemini_chat(full_prompt)
 
 # ─────────────────────────────────────────────
 # دوال الإرسال للقناة
@@ -233,3 +234,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                          
